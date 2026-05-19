@@ -6,6 +6,7 @@ from sklearn import datasets
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
+import xgboost as xgb
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.metrics import confusion_matrix, classification_report
 
@@ -15,6 +16,7 @@ from sklearn.metrics import confusion_matrix, classification_report
 
 FEAT_COLS = ["sepal_length", "sepal_width", "petal_length", "petal_width"]
 SPECIES_MAP = {0: "Setosa", 1: "Versicolor", 2: "Virginica"}
+ALL_MODELS = ["Random Forest", "SVM", "Logistic Regression", "XGBoost"]
 
 
 def load_iris():
@@ -32,6 +34,7 @@ def train_model(name: str):
         "Random Forest": RandomForestClassifier(random_state=42),
         "SVM": SVC(probability=True, random_state=42),
         "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+        "XGBoost": xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0),
     }
     clf = models[name]
     clf.fit(X, y)
@@ -45,6 +48,7 @@ def get_model_metrics(name: str):
         "Random Forest": RandomForestClassifier(random_state=42),
         "SVM": SVC(probability=True, random_state=42),
         "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+        "XGBoost": xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0),
     }
     clf = models[name]
 
@@ -69,12 +73,14 @@ def get_model_metrics(name: str):
 
 def train_model_2d(name: str, feat_cols: list):
     """Train a classifier on a subset of features (for decision boundary tests)."""
+    """Train a classifier on a subset of features (for decision boundary tests)."""
     X, y, _ = load_iris()
     X_2d = X[feat_cols].values
     models = {
         "Random Forest": RandomForestClassifier(random_state=42),
         "SVM": SVC(probability=True, random_state=42),
         "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+        "XGBoost": xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0),
     }
     clf = models[name]
     clf.fit(X_2d, y)
@@ -86,7 +92,7 @@ class TestIrisClassifier:
 
     def setup_method(self):
         self.X, self.y, self.target_names = load_iris()
-        self.models = ["Random Forest", "SVM", "Logistic Regression"]
+        self.models = ALL_MODELS
 
     def test_dataset_shape(self):
         """The dataset should have 150 samples and 4 features."""
@@ -208,6 +214,37 @@ class TestIrisClassifier:
             metrics = get_model_metrics(m)
             macro_f1 = metrics["classification_report"]["macro avg"]["f1-score"]
             assert macro_f1 >= 0.85, f"{m} macro avg F1 {macro_f1:.3f} is too low"
+
+        # ── Tier 4: XGBoost tests ──
+
+    def test_xgboost_trains_and_predicts(self):
+        """XGBoost should train and predict without errors."""
+        clf = train_model("XGBoost")
+        sample = pd.DataFrame([[5.1, 3.5, 1.4, 0.2]], columns=FEAT_COLS)
+        pred = clf.predict(sample)[0]
+        proba = clf.predict_proba(sample)[0]
+        assert pred in [0, 1, 2]
+        assert abs(proba.sum() - 1.0) < 1e-6
+
+    def test_xgboost_feature_importances(self):
+        """XGBoost should return valid feature importances."""
+        X, y, _ = load_iris()
+        clf = xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0)
+        clf.fit(X, y)
+        importances = clf.feature_importances_
+        assert len(importances) == 4
+        assert all(i >= 0 for i in importances)
+        assert abs(importances.sum() - 1.0) < 1e-6
+
+    def test_xgboost_cv_accuracy_above_baseline(self):
+        """XGBoost CV accuracy should be well above random chance."""
+        metrics = get_model_metrics("XGBoost")
+        assert metrics["cv_mean"] > 0.8
+
+    def test_xgboost_confusion_matrix_shape(self):
+        """XGBoost confusion matrix should be 3x3."""
+        metrics = get_model_metrics("XGBoost")
+        assert metrics["confusion_matrix"].shape == (3, 3)
 
     # ── Tier 2: Decision Boundary tests ──
 

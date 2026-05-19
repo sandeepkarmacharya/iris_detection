@@ -6,7 +6,7 @@ based on sepal and petal measurements using scikit-learn classifiers.
 
 Features:
   - Interactive sidebar sliders for feature input
-  - Multiple ML models: Random Forest, SVM, Logistic Regression
+  - Multiple ML models: Random Forest, SVM, Logistic Regression, XGBoost
   - Model comparison mode
   - Interactive visualizations (scatter plots, PCA projection, histograms)
   - Training data explorer with statistics
@@ -24,6 +24,9 @@ from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 import matplotlib.pyplot as plt
 import seaborn as sns
+import xgboost as xgb
+import shap
+import warnings
 
 # ── Page config ──────────────────────────────────────────────────────
 st.set_page_config(page_title="Iris Flower Classifier", page_icon="🌸", layout="centered")
@@ -57,6 +60,7 @@ SPECIES_MAP = {
 }
 FEAT_COLS = ["sepal_length", "sepal_width", "petal_length", "petal_width"]
 FEAT_LABELS = ["Sepal Length (cm)", "Sepal Width (cm)", "Petal Length (cm)", "Petal Width (cm)"]
+ALL_MODELS = ["Random Forest", "SVM", "Logistic Regression", "XGBoost"]
 
 
 # ── Cached resources ─────────────────────────────────────────────────
@@ -77,6 +81,7 @@ def get_model(name):
         "Random Forest": RandomForestClassifier(random_state=42),
         "SVM": SVC(probability=True, random_state=42),
         "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+        "XGBoost": xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0),
     }
     clf = models[name]
     clf.fit(X, y)
@@ -91,6 +96,7 @@ def get_model_metrics(name):
         "Random Forest": RandomForestClassifier(random_state=42),
         "SVM": SVC(probability=True, random_state=42),
         "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+        "XGBoost": xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0),
     }
     clf = models[name]
 
@@ -129,13 +135,13 @@ with st.sidebar:
     st.markdown("---")
     model_choice = st.selectbox(
         "ML Model",
-        ["Random Forest", "SVM", "Logistic Regression"],
+        ALL_MODELS,
         help="Which classifier to use for prediction.",
     )
     compare_mode = st.checkbox(
         "Compare all models",
         value=False,
-        help="Show predictions from all three classifiers side by side.",
+        help="Show predictions from all classifiers side by side.",
     )
 
 # ── Input DataFrame ──────────────────────────────────────────────────
@@ -227,15 +233,67 @@ with tab_pred:
         st.pyplot(fig)
         plt.close(fig)
 
+        # ── SHAP Explanation ──
+        with st.expander("🔮 Model Explanation (SHAP)", expanded=False):
+            st.markdown(
+                "SHAP (SHapley Additive ExPlanations) shows how each feature "
+                "contributed to pushing the prediction away from the average."
+            )
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    X_np = input_df.values
+                    clf_shap = get_model(model_choice)
+
+                    if model_choice in ("Random Forest", "XGBoost"):
+                        explainer = shap.TreeExplainer(clf_shap)
+                        shap_values = explainer.shap_values(X_np)
+                    elif model_choice == "SVM":
+                        background = X.values[:50]
+                        explainer = shap.KernelExplainer(clf_shap.predict_proba, background)
+                        shap_values = explainer.shap_values(X_np)
+                    else:
+                        explainer = shap.LinearExplainer(clf_shap, X.values)
+                        shap_values = explainer.shap_values(X_np)
+
+                    pred_class = int(clf_shap.predict(X_np)[0])
+                    fig, ax = plt.subplots(figsize=(8, 4.5))
+
+                    if isinstance(shap_values, list):
+                        sv = shap_values[pred_class][0]
+                    else:
+                        sv = shap_values[0]
+
+                    if hasattr(explainer, "expected_value"):
+                        ev = explainer.expected_value
+                        base_val = ev[pred_class] if isinstance(ev, list) else ev
+                    else:
+                        base_val = 0
+
+                    shap.waterfall_plot(
+                        shap.Explanation(
+                            values=sv,
+                            base_values=base_val,
+                            data=X_np[0],
+                            feature_names=FEAT_LABELS,
+                        ),
+                        show=False,
+                        max_display=4,
+                    )
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close(fig)
+            except Exception as e:
+                st.info(f"SHAP explanation not available for {model_choice}: {e}")
+
     else:
         # ── Compare all models ──
         st.subheader("🤖 Model Comparison")
-        st.markdown("See how all three classifiers vote on your flower.")
+        st.markdown("See how all classifiers vote on your flower.")
 
-        models = ["Random Forest", "SVM", "Logistic Regression"]
-        cards = st.columns(3)
+        cards = st.columns(len(ALL_MODELS))
 
-        for i, (m, col) in enumerate(zip(models, cards)):
+        for i, (m, col) in enumerate(zip(ALL_MODELS, cards)):
             clf = get_model(m)
             pred = clf.predict(input_df)[0]
             proba = clf.predict_proba(input_df)[0]
@@ -257,7 +315,7 @@ with tab_pred:
 
         st.subheader("Detailed Probabilities")
         rows = []
-        for m in models:
+        for m in ALL_MODELS:
             clf = get_model(m)
             proba = clf.predict_proba(input_df)[0]
             rows.append({
@@ -270,7 +328,7 @@ with tab_pred:
     st.divider()
     pred_model = model_choice if not compare_mode else "All Models"
     download_rows = []
-    models_to_run = [model_choice] if not compare_mode else ["Random Forest", "SVM", "Logistic Regression"]
+    models_to_run = [model_choice] if not compare_mode else ALL_MODELS
     for m in models_to_run:
         clf = get_model(m)
         pred = clf.predict(input_df)[0]
@@ -415,7 +473,7 @@ with tab_viz:
         )
         db_model = st.selectbox(
             "Classifier",
-            ["Random Forest", "SVM", "Logistic Regression"],
+            ALL_MODELS,
             key="db_model",
         )
         resolution = st.slider("Resolution", 100, 500, 200, 50, help="Higher = smoother boundaries but slower.")
@@ -425,12 +483,13 @@ with tab_viz:
         feat_idx = [FEAT_COLS.index(x_opt), FEAT_COLS.index(y_opt)]
         X_2d = X_full.iloc[:, feat_idx].values
 
-        models = {
+        models_2d = {
             "Random Forest": RandomForestClassifier(random_state=42),
             "SVM": SVC(probability=True, random_state=42),
             "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+            "XGBoost": xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0),
         }
-        clf = models[db_model]
+        clf = models_2d[db_model]
         clf.fit(X_2d, y_full)
 
         # Create meshgrid
@@ -480,7 +539,7 @@ with tab_perf:
 
     perf_model = st.selectbox(
         "Select model to evaluate",
-        ["Random Forest", "SVM", "Logistic Regression"],
+        ALL_MODELS,
         key="perf_model_select",
     )
 
@@ -569,7 +628,7 @@ with tab_perf:
     # Model comparison summary
     st.subheader("📊 All Models — Side by Side")
     all_metrics_rows = []
-    for m in ["Random Forest", "SVM", "Logistic Regression"]:
+    for m in ALL_MODELS:
         m_metrics = get_model_metrics(m)
         all_metrics_rows.append({
             "Model": m,
@@ -587,7 +646,7 @@ with tab_perf:
     model_names = [r["Model"] for r in all_metrics_rows]
     means = [m_metrics['cv_mean'] for m in model_names]
     stds = [m_metrics['cv_std'] for m in model_names]
-    model_colors = [SPECIES_MAP[i]["color"] for i in range(3)]
+    model_colors = ["#52b788", "#9b5de5", "#e63946", "#ff8c00"]
     bars = ax.bar(model_names, means, yerr=stds, capsize=5, color=model_colors, width=0.4)
     ax.set_ylabel("CV Accuracy")
     ax.set_ylim(0, 1.1)
@@ -608,13 +667,13 @@ with tab_perf:
     st.subheader("🔍 Feature Importance")
     st.markdown(
         "Which features most influence the model's predictions? "
-        "For **Random Forest** we use built-in feature importance (Gini impurity decrease). "
+        "For **Random Forest** and **XGBoost** we use built-in feature importance. "
         "For **Logistic Regression** we show coefficient magnitudes."
     )
 
     fi_model = st.selectbox(
         "Model for feature importance",
-        ["Random Forest", "Logistic Regression"],
+        ["Random Forest", "XGBoost", "Logistic Regression"],
         key="fi_model_select",
     )
     X_full, y_full, _ = load_iris()
@@ -624,6 +683,11 @@ with tab_perf:
         fi_clf.fit(X_full, y_full)
         importances = fi_clf.feature_importances_
         title = "Random Forest — Feature Importance (Gini)"
+    elif fi_model == "XGBoost":
+        fi_clf = xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0)
+        fi_clf.fit(X_full, y_full)
+        importances = fi_clf.feature_importances_
+        title = "XGBoost — Feature Importance (Gain)"
     elif fi_model == "Logistic Regression":
         fi_clf = LogisticRegression(max_iter=200, random_state=42)
         fi_clf.fit(X_full, y_full)
@@ -725,7 +789,7 @@ with tab_tune:
 
     tune_model = st.selectbox(
         "Model to tune",
-        ["Random Forest", "SVM", "Logistic Regression"],
+        ALL_MODELS,
         key="tune_model_select",
     )
 
@@ -771,9 +835,29 @@ with tab_tune:
 
         param_desc = f"kernel={kernel}, C={c_val}, gamma={gamma_val}"
 
-    elif tune_model == "Logistic Regression":
-        c_val = st.slider("C (Inverse regularization strength)", 0.001, 10.0, 1.0, 0.1,
-                          help="Smaller C = stronger regularization. Larger C = less regularization.")
+    elif tune_model == "XGBoost":
+        n_est = st.slider("n_estimators (Number of trees)", 10, 300, 100, 10,
+                          help="More trees = more stable, slower to train.", key="xgb_n_est")
+        max_d = st.slider("max_depth (Max tree depth)", 1, 20, 6, 1,
+                          help="Deeper trees capture more complex patterns.", key="xgb_max_d")
+        lr = st.slider("learning_rate (Step size)", 0.01, 1.0, 0.3, 0.05,
+                       help="Lower = more robust but needs more trees.", key="xgb_lr")
+        subsample = st.slider("subsample (Row sampling)", 0.5, 1.0, 1.0, 0.1,
+                              help="Lower = prevents overfitting.", key="xgb_sub")
+
+        clf = xgb.XGBClassifier(
+            n_estimators=n_est, max_depth=max_d, learning_rate=lr,
+            subsample=subsample, eval_metric="mlogloss",
+            random_state=42, verbosity=0,
+        )
+        scores = cross_val_score(clf, X_full, y_full, cv=cv, scoring="accuracy")
+
+        default = xgb.XGBClassifier(eval_metric="mlogloss", random_state=42, verbosity=0)
+        default_scores = cross_val_score(default, X_full, y_full, cv=cv, scoring="accuracy")
+
+        param_desc = f"n_estimators={n_est}, max_depth={max_d}, learning_rate={lr}, subsample={subsample}"
+
+
         max_i = st.slider("max_iter (Max iterations)", 50, 500, 200, 25,
                           help="More iterations may help convergence for complex models.")
         solver = st.selectbox("Solver", ["lbfgs", "liblinear", "newton-cg", "sag", "saga"], index=0,
@@ -841,6 +925,7 @@ with tab_tune:
             - **Random Forest**: Start with 100 trees, max_depth=5–10. Increase trees for stability.
             - **SVM**: RBF kernel works well for Iris. Try C=1, gamma='scale' as baseline.
             - **Logistic Regression**: Use lbfgs solver for small datasets. C=1 is a good starting point.
+            - **XGBoost**: Start with 100 trees, max_depth=6, learning_rate=0.3. Lower learning_rate + more trees for better accuracy.
             - **Overfitting sign**: High training accuracy but lower CV accuracy → reduce model complexity.
             - **Underfitting sign**: Both training and CV accuracy are low → increase model complexity.
             """
