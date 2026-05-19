@@ -16,12 +16,13 @@ An interactive **Iris flower species predictor** built with [Streamlit](https://
 ## ✨ Features
 
 | **🎯 Instant Predictions** — Adjust sliders → see predicted species + confidence
-| **🤖 Multiple Models** — Random Forest, SVM, and Logistic Regression
-| **🔄 Model Comparison** — Compare all 3 classifiers side-by-side
+| **🤖 Multiple Models** — Random Forest, SVM, Logistic Regression, **XGBoost**
+| **🔄 Model Comparison** — Compare all 4 classifiers side-by-side
 | **📈 Interactive Visualizations** — Scatter plots, PCA projection, feature distribution histograms
 | **🧠 Decision Boundaries** — 2D visualization of how models separate species
 | **🔧 Hyperparameter Tuning** — Interactive sliders to tweak model params and compare accuracy
 | **🔍 Feature Importance** — See which measurements drive predictions
+| **🔮 SHAP Explanations** — Waterfall plots showing feature contributions to each prediction
 | **🎯 Model Performance** — CV accuracy, confusion matrices, per-class precision/recall/F1
 | **📥 CSV Export** — Download prediction results for record-keeping
 | **⚡ Cached Training** — Models train once and are reused via `@st.cache_resource`
@@ -41,10 +42,11 @@ Try the app live on Streamlit Community Cloud:
 ## 🧪 How It Works
 
 1. Use the **sidebar sliders** to set your flower's sepal length/width and petal length/width
-2. Choose a **classifier** (Random Forest, SVM, or Logistic Regression)
+2. Choose a **classifier** (Random Forest, SVM, Logistic Regression, or XGBoost)
 3. The app instantly predicts the species and shows:
    - A **styled prediction card** with confidence percentage
    - **Probability bar chart** for all 3 species
+   - **SHAP waterfall plot** explaining which features drove the prediction (expandable)
    - Your input point plotted on the **training data visualizations**
 
 ---
@@ -145,6 +147,8 @@ Introduced by Ronald Fisher in 1936, it's one of the most famous datasets in mac
 |---|---|
 | [Streamlit](https://streamlit.io) | Web app framework |
 | [scikit-learn](https://scikit-learn.org) | ML models & dataset |
+| [XGBoost](https://xgboost.readthedocs.io) | Gradient boosted trees classifier |
+| [SHAP](https://shap.readthedocs.io) | Model explainability (waterfall plots) |
 | [Matplotlib](https://matplotlib.org) | Plotting & charts |
 | [Seaborn](https://seaborn.pydata.org) | Statistical visualizations |
 | [pandas](https://pandas.pydata.org) | Data handling |
