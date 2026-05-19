@@ -155,10 +155,11 @@ st.markdown(
 st.divider()
 
 # ── Tabs ─────────────────────────────────────────────────────────────
-tab_pred, tab_viz, tab_perf, tab_data = st.tabs([
+tab_pred, tab_viz, tab_perf, tab_tune, tab_data = st.tabs([
     "📊 Prediction",
     "📈 Visualizations",
     "🎯 Model Performance",
+    "🔧 Model Tuning",
     "📖 About the Data",
 ])
 
@@ -308,7 +309,7 @@ with tab_viz:
 
     viz_mode = st.radio(
         "Visualization type",
-        ["Scatter Plot", "PCA Projection", "Feature Distributions"],
+        ["Scatter Plot", "PCA Projection", "Feature Distributions", "Decision Boundary"],
         horizontal=True,
     )
 
@@ -391,6 +392,79 @@ with tab_viz:
             ax.legend(fontsize=8)
         plt.suptitle("Feature Distributions by Species", fontsize=14)
         plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+
+    elif viz_mode == "Decision Boundary":
+        st.subheader("Decision Boundary Visualization")
+        st.markdown(
+            "Train a model on just two features and see how it separates "
+            "the three Iris species in 2D space."
+        )
+
+        # Feature selection
+        x_opt = st.selectbox(
+            "X-axis feature", FEAT_COLS, index=0,
+            format_func=lambda c: FEAT_LABELS[FEAT_COLS.index(c)],
+            key="db_x",
+        )
+        y_opt = st.selectbox(
+            "Y-axis feature", FEAT_COLS, index=2,
+            format_func=lambda c: FEAT_LABELS[FEAT_COLS.index(c)],
+            key="db_y",
+        )
+        db_model = st.selectbox(
+            "Classifier",
+            ["Random Forest", "SVM", "Logistic Regression"],
+            key="db_model",
+        )
+        resolution = st.slider("Resolution", 100, 500, 200, 50, help="Higher = smoother boundaries but slower.")
+
+        # Train model on just the 2 selected features
+        X_full, y_full, target_names = load_iris()
+        feat_idx = [FEAT_COLS.index(x_opt), FEAT_COLS.index(y_opt)]
+        X_2d = X_full.iloc[:, feat_idx].values
+
+        models = {
+            "Random Forest": RandomForestClassifier(random_state=42),
+            "SVM": SVC(probability=True, random_state=42),
+            "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+        }
+        clf = models[db_model]
+        clf.fit(X_2d, y_full)
+
+        # Create meshgrid
+        x_min, x_max = X_2d[:, 0].min() - 0.5, X_2d[:, 0].max() + 0.5
+        y_min, y_max = X_2d[:, 1].min() - 0.5, X_2d[:, 1].max() + 0.5
+        xx, yy = np.meshgrid(
+            np.linspace(x_min, x_max, resolution),
+            np.linspace(y_min, y_max, resolution),
+        )
+        Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
+        Z = Z.reshape(xx.shape)
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.contourf(xx, yy, Z, alpha=0.3, cmap="Set2")
+        for i in range(3):
+            subset = viz_df[viz_df["species"] == SPECIES_MAP[i]["name"]]
+            ax.scatter(
+                subset[x_opt], subset[y_opt],
+                c=SPECIES_MAP[i]["color"], label=SPECIES_MAP[i]["name"],
+                s=50, edgecolors="white", linewidth=0.8, alpha=0.9,
+            )
+        # Mark user input
+        ax.scatter(
+            input_df[x_opt].values[0], input_df[y_opt].values[0],
+            c="black", s=200, marker="*",
+            edgecolors="white", linewidth=1.5, zorder=5,
+            label="Your Input",
+        )
+        ax.set_xlabel(FEAT_LABELS[FEAT_COLS.index(x_opt)], fontsize=12)
+        ax.set_ylabel(FEAT_LABELS[FEAT_COLS.index(y_opt)], fontsize=12)
+        ax.set_title(f"{db_model} — Decision Boundary", fontsize=13)
+        ax.legend(fontsize=10)
+        sns.despine()
         st.pyplot(fig)
         plt.close(fig)
 
@@ -528,6 +602,65 @@ with tab_perf:
     st.pyplot(fig)
     plt.close(fig)
 
+    st.divider()
+
+    # ── Feature Importance ──
+    st.subheader("🔍 Feature Importance")
+    st.markdown(
+        "Which features most influence the model's predictions? "
+        "For **Random Forest** we use built-in feature importance (Gini impurity decrease). "
+        "For **Logistic Regression** we show coefficient magnitudes."
+    )
+
+    fi_model = st.selectbox(
+        "Model for feature importance",
+        ["Random Forest", "Logistic Regression"],
+        key="fi_model_select",
+    )
+    X_full, y_full, _ = load_iris()
+
+    if fi_model == "Random Forest":
+        fi_clf = RandomForestClassifier(random_state=42)
+        fi_clf.fit(X_full, y_full)
+        importances = fi_clf.feature_importances_
+        title = "Random Forest — Feature Importance (Gini)"
+    elif fi_model == "Logistic Regression":
+        fi_clf = LogisticRegression(max_iter=200, random_state=42)
+        fi_clf.fit(X_full, y_full)
+        # Average absolute coefficient across all 3 one-vs-rest classifiers
+        importances = np.mean(np.abs(fi_clf.coef_), axis=0)
+        title = "Logistic Regression — Mean |Coefficient| per Feature"
+
+    fi_df = pd.DataFrame({
+        "Feature": FEAT_LABELS,
+        "Importance": importances,
+    }).sort_values("Importance", ascending=True)
+
+    fig, ax = plt.subplots(figsize=(8, 3.5))
+    colors_fi = plt.cm.Blues(np.linspace(0.4, 0.9, len(fi_df)))[::-1]
+    bars = ax.barh(fi_df["Feature"], fi_df["Importance"], color=colors_fi, height=0.6)
+    for bar, val in zip(bars, fi_df["Importance"]):
+        ax.text(
+            bar.get_width() + 0.01 * fi_df["Importance"].max(),
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:.4f}",
+            va="center", fontsize=10,
+        )
+    ax.set_xlim(0, fi_df["Importance"].max() * 1.3)
+    ax.set_xlabel("Importance")
+    ax.set_title(title, fontsize=12)
+    sns.despine()
+    st.pyplot(fig)
+    plt.close(fig)
+
+    with st.expander("💡 What does this mean?"):
+        top_feat = fi_df.iloc[-1]["Feature"]
+        st.markdown(
+            f"**{top_feat}** is the most important feature for this model. "
+            "Petal measurements (length and width) are typically much more "
+            "discriminative for Iris species than sepal measurements."
+        )
+
 # ══════════════════════════════════════════════════════════════════════
 # TAB 4 — About the Data
 # ══════════════════════════════════════════════════════════════════════
@@ -579,6 +712,139 @@ with tab_data:
     sns.despine()
     st.pyplot(fig)
     plt.close(fig)
+
+# ══════════════════════════════════════════════════════════════════════
+# TAB 5 — Model Tuning
+# ══════════════════════════════════════════════════════════════════════
+with tab_tune:
+    st.subheader("🔧 Hyperparameter Tuning")
+    st.markdown(
+        "Tweak model hyperparameters interactively and see how they "
+        "affect cross-validation accuracy."
+    )
+
+    tune_model = st.selectbox(
+        "Model to tune",
+        ["Random Forest", "SVM", "Logistic Regression"],
+        key="tune_model_select",
+    )
+
+    X_full, y_full, _ = load_iris()
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+    if tune_model == "Random Forest":
+        n_est = st.slider("n_estimators (Number of trees)", 10, 300, 100, 10,
+                          help="More trees = more stable, slower to train.")
+        max_d = st.slider("max_depth (Max tree depth)", 1, 20, 5, 1,
+                          help="Deeper trees can model more complex patterns but risk overfitting.")
+        min_s = st.slider("min_samples_split (Min samples to split)", 2, 20, 2, 1,
+                          help="Higher = simpler trees, less overfitting.")
+
+        clf = RandomForestClassifier(
+            n_estimators=n_est, max_depth=max_d,
+            min_samples_split=min_s, random_state=42,
+        )
+        scores = cross_val_score(clf, X_full, y_full, cv=cv, scoring="accuracy")
+
+        # Default model comparison
+        default = RandomForestClassifier(random_state=42)
+        default_scores = cross_val_score(default, X_full, y_full, cv=cv, scoring="accuracy")
+
+        param_desc = f"n_estimators={n_est}, max_depth={max_d}, min_samples_split={min_s}"
+
+    elif tune_model == "SVM":
+        kernel = st.selectbox("Kernel type", ["rbf", "linear", "poly"], index=0,
+                               key="svm_kernel")
+        c_val = st.slider("C (Regularization)", 0.01, 10.0, 1.0, 0.1,
+                          help="Smaller C = softer margin (may underfit). Larger C = harder margin (may overfit).")
+        gamma_val = st.select_slider("Gamma (Kernel coefficient)",
+                                      options=["scale", "auto", 0.001, 0.01, 0.1, 1.0],
+                                      value="scale",
+                                      help="'scale' = 1/(n_features * X.var()). 'auto' = 1/n_features.")
+
+        clf = SVC(kernel=kernel, C=c_val, gamma=gamma_val, random_state=42)
+        scores = cross_val_score(clf, X_full, y_full, cv=cv, scoring="accuracy")
+
+        # Default comparison
+        default = SVC(random_state=42)
+        default_scores = cross_val_score(default, X_full, y_full, cv=cv, scoring="accuracy")
+
+        param_desc = f"kernel={kernel}, C={c_val}, gamma={gamma_val}"
+
+    elif tune_model == "Logistic Regression":
+        c_val = st.slider("C (Inverse regularization strength)", 0.001, 10.0, 1.0, 0.1,
+                          help="Smaller C = stronger regularization. Larger C = less regularization.")
+        max_i = st.slider("max_iter (Max iterations)", 50, 500, 200, 25,
+                          help="More iterations may help convergence for complex models.")
+        solver = st.selectbox("Solver", ["lbfgs", "liblinear", "newton-cg", "sag", "saga"], index=0,
+                               key="lr_solver")
+
+        clf = LogisticRegression(C=c_val, max_iter=max_i, solver=solver, random_state=42)
+        scores = cross_val_score(clf, X_full, y_full, cv=cv, scoring="accuracy")
+
+        # Default comparison
+        default = LogisticRegression(max_iter=200, random_state=42)
+        default_scores = cross_val_score(default, X_full, y_full, cv=cv, scoring="accuracy")
+
+        param_desc = f"C={c_val}, max_iter={max_i}, solver={solver}"
+
+    # ── Results ──
+    st.divider()
+    col_tune_left, col_tune_right = st.columns(2)
+
+    with col_tune_left:
+        st.metric(
+            "Tuned CV Accuracy",
+            f"{scores.mean():.2%}",
+            delta=f"±{scores.std():.2%}",
+        )
+
+    with col_tune_right:
+        delta_val = scores.mean() - default_scores.mean()
+        st.metric(
+            "Default CV Accuracy",
+            f"{default_scores.mean():.2%}",
+            delta=f"±{default_scores.std():.2%}",
+            delta_color="off",
+        )
+        st.caption(f"Tuned vs default: **{delta_val:+.2%}**")
+
+    # Per-fold comparison chart
+    st.subheader("Per-Fold Comparison")
+    fold_df = pd.DataFrame({
+        "Fold": [f"Fold {i+1}" for i in range(5)],
+        "Tuned": scores,
+        "Default": default_scores,
+    })
+    fig, ax = plt.subplots(figsize=(8, 3))
+    x = np.arange(len(fold_df))
+    w = 0.35
+    ax.bar(x - w / 2, fold_df["Tuned"], w, label="Tuned", color="#52b788", alpha=0.85)
+    ax.bar(x + w / 2, fold_df["Default"], w, label="Default", color="#9b5de5", alpha=0.6)
+    ax.set_xticks(x)
+    ax.set_xticklabels(fold_df["Fold"])
+    ax.set_ylabel("Accuracy")
+    ax.set_ylim(0.7, 1.05)
+    ax.legend(fontsize=10)
+    ax.axhline(scores.mean(), color="#52b788", linestyle="--", linewidth=1, alpha=0.6)
+    ax.axhline(default_scores.mean(), color="#9b5de5", linestyle="--", linewidth=1, alpha=0.6)
+    sns.despine()
+    st.pyplot(fig)
+    plt.close(fig)
+
+    with st.expander("📋 Current parameters"):
+        st.code(param_desc, language="text")
+
+    with st.expander("💡 Tuning tips"):
+        st.markdown(
+            """
+            - **Random Forest**: Start with 100 trees, max_depth=5–10. Increase trees for stability.
+            - **SVM**: RBF kernel works well for Iris. Try C=1, gamma='scale' as baseline.
+            - **Logistic Regression**: Use lbfgs solver for small datasets. C=1 is a good starting point.
+            - **Overfitting sign**: High training accuracy but lower CV accuracy → reduce model complexity.
+            - **Underfitting sign**: Both training and CV accuracy are low → increase model complexity.
+            """
+        )
 
 # ── Footer ───────────────────────────────────────────────────────────
 st.divider()
