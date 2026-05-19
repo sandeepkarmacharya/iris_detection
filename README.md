@@ -18,6 +18,8 @@ An interactive **Iris flower species predictor** built with [Streamlit](https://
 - **🔄 Model Comparison** — Compare all 3 classifiers side-by-side
 - **📈 Interactive Visualizations** — Scatter plots, PCA projection, feature distribution histograms
 - **📖 Dataset Explorer** — Stats, preview, and class distribution of the Iris dataset
+- **🎯 Model Performance** — CV accuracy, confusion matrices, per-class precision/recall/F1
+- **📥 CSV Export** — Download prediction results for record-keeping
 - **⚡ Cached Training** — Models train once and are reused via `@st.cache_resource`
 
 ---

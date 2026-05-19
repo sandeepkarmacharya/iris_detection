@@ -20,6 +20,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
 from sklearn.decomposition import PCA
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -81,6 +83,39 @@ def get_model(name):
     return clf
 
 
+@st.cache_resource
+def get_model_metrics(name):
+    """Compute cross-val scores and confusion matrix for a model."""
+    X, y, target_names = load_iris()
+    models = {
+        "Random Forest": RandomForestClassifier(random_state=42),
+        "SVM": SVC(probability=True, random_state=42),
+        "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+    }
+    clf = models[name]
+
+    # 5-fold cross-validation accuracy
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(clf, X, y, cv=cv, scoring="accuracy")
+
+    # Full-fit confusion matrix
+    clf.fit(X, y)
+    y_pred = clf.predict(X)
+    cm = confusion_matrix(y, y_pred)
+
+    # Classification report as dict
+    report = classification_report(y, y_pred, target_names=target_names, output_dict=True)
+
+    return {
+        "cv_scores": cv_scores,
+        "cv_mean": cv_scores.mean(),
+        "cv_std": cv_scores.std(),
+        "confusion_matrix": cm,
+        "classification_report": report,
+        "target_names": target_names,
+    }
+
+
 # ── Sidebar ──────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("🌸 Iris Classifier")
@@ -120,9 +155,10 @@ st.markdown(
 st.divider()
 
 # ── Tabs ─────────────────────────────────────────────────────────────
-tab_pred, tab_viz, tab_data = st.tabs([
+tab_pred, tab_viz, tab_perf, tab_data = st.tabs([
     "📊 Prediction",
     "📈 Visualizations",
+    "🎯 Model Performance",
     "📖 About the Data",
 ])
 
@@ -229,6 +265,37 @@ with tab_pred:
             })
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
+    # ── Download results ──
+    st.divider()
+    pred_model = model_choice if not compare_mode else "All Models"
+    download_rows = []
+    models_to_run = [model_choice] if not compare_mode else ["Random Forest", "SVM", "Logistic Regression"]
+    for m in models_to_run:
+        clf = get_model(m)
+        pred = clf.predict(input_df)[0]
+        proba = clf.predict_proba(input_df)[0]
+        download_rows.append({
+            "Model": m,
+            "Sepal Length": sl_sepal_l,
+            "Sepal Width": sl_sepal_w,
+            "Petal Length": sl_petal_l,
+            "Petal Width": sl_petal_w,
+            "Prediction": f"Iris {SPECIES_MAP[pred]['name']}",
+            "Confidence": f"{proba[pred]:.1%}",
+            "Prob_Setosa": f"{proba[0]:.3f}",
+            "Prob_Versicolor": f"{proba[1]:.3f}",
+            "Prob_Virginica": f"{proba[2]:.3f}",
+        })
+    download_df = pd.DataFrame(download_rows)
+    csv_bytes = download_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Download Prediction Results (CSV)",
+        data=csv_bytes,
+        file_name="iris_prediction_results.csv",
+        mime="text/csv",
+        help="Download your input measurements, prediction, and probabilities as a CSV file.",
+    )
+
 # ══════════════════════════════════════════════════════════════════════
 # TAB 2 — Visualizations
 # ══════════════════════════════════════════════════════════════════════
@@ -328,7 +395,141 @@ with tab_viz:
         plt.close(fig)
 
 # ══════════════════════════════════════════════════════════════════════
-# TAB 3 — About the Data
+# TAB 3 — Model Performance
+# ══════════════════════════════════════════════════════════════════════
+with tab_perf:
+    st.subheader("🎯 Model Performance")
+    st.markdown(
+        "Cross-validation accuracy, confusion matrices, and per-class metrics "
+        "for each classifier on the full Iris dataset."
+    )
+
+    perf_model = st.selectbox(
+        "Select model to evaluate",
+        ["Random Forest", "SVM", "Logistic Regression"],
+        key="perf_model_select",
+    )
+
+    metrics = get_model_metrics(perf_model)
+
+    # Cross-validation scores
+    st.subheader("Cross-Validation Accuracy (5-Fold)")
+    cv_df = pd.DataFrame({
+        "Fold": [f"Fold {i+1}" for i in range(5)],
+        "Accuracy": metrics["cv_scores"],
+    })
+    col_cv_left, col_cv_right = st.columns([1, 2])
+    with col_cv_left:
+        st.metric(
+            "Mean CV Accuracy",
+            f"{metrics['cv_mean']:.2%}",
+            delta=f"±{metrics['cv_std']:.2%}",
+        )
+    with col_cv_right:
+        fig, ax = plt.subplots(figsize=(6, 2.5))
+        colors_bar = ["#52b788" if s >= metrics["cv_mean"] else "#e63946" for s in metrics["cv_scores"]]
+        bars = ax.bar(cv_df["Fold"], cv_df["Accuracy"], color=colors_bar, width=0.5)
+        ax.axhline(metrics["cv_mean"], color="#333", linestyle="--", linewidth=1, label=f"Mean: {metrics['cv_mean']:.2%}")
+        ax.set_ylim(0, 1.05)
+        ax.set_ylabel("Accuracy")
+        ax.legend(fontsize=9)
+        sns.despine()
+        st.pyplot(fig)
+        plt.close(fig)
+
+    st.divider()
+
+    # Confusion matrix
+    st.subheader("Confusion Matrix")
+    fig, ax = plt.subplots(figsize=(5, 4))
+    disp = ConfusionMatrixDisplay(
+        confusion_matrix=metrics["confusion_matrix"],
+        display_labels=metrics["target_names"],
+    )
+    disp.plot(ax=ax, cmap="Blues", values_format="d", colorbar=False)
+    ax.set_title(f"{perf_model} — Confusion Matrix", fontsize=12)
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.divider()
+
+    # Classification report
+    st.subheader("Per-Class Metrics")
+    report = metrics["classification_report"]
+    report_rows = []
+    for cls_name in metrics["target_names"]:
+        cls = report[cls_name]
+        report_rows.append({
+            "Class": cls_name,
+            "Precision": f"{cls['precision']:.3f}",
+            "Recall": f"{cls['recall']:.3f}",
+            "F1-Score": f"{cls['f1-score']:.3f}",
+            "Support": int(cls["support"]),
+        })
+    # Add macro avg
+    macro = report["macro avg"]
+    report_rows.append({
+        "Class": "Macro Avg",
+        "Precision": f"{macro['precision']:.3f}",
+        "Recall": f"{macro['recall']:.3f}",
+        "F1-Score": f"{macro['f1-score']:.3f}",
+        "Support": int(macro["support"]),
+    })
+    # Add weighted avg
+    weighted = report["weighted avg"]
+    report_rows.append({
+        "Class": "Weighted Avg",
+        "Precision": f"{weighted['precision']:.3f}",
+        "Recall": f"{weighted['recall']:.3f}",
+        "F1-Score": f"{weighted['f1-score']:.3f}",
+        "Support": int(weighted["support"]),
+    })
+    st.dataframe(
+        pd.DataFrame(report_rows),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    st.divider()
+
+    # Model comparison summary
+    st.subheader("📊 All Models — Side by Side")
+    all_metrics_rows = []
+    for m in ["Random Forest", "SVM", "Logistic Regression"]:
+        m_metrics = get_model_metrics(m)
+        all_metrics_rows.append({
+            "Model": m,
+            "CV Accuracy (mean)": f"{m_metrics['cv_mean']:.2%}",
+            "CV Accuracy (std)": f"±{m_metrics['cv_std']:.2%}",
+        })
+    st.dataframe(
+        pd.DataFrame(all_metrics_rows),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    # Bar chart comparing all models
+    fig, ax = plt.subplots(figsize=(8, 3))
+    model_names = [r["Model"] for r in all_metrics_rows]
+    means = [m_metrics['cv_mean'] for m in model_names]
+    stds = [m_metrics['cv_std'] for m in model_names]
+    model_colors = [SPECIES_MAP[i]["color"] for i in range(3)]
+    bars = ax.bar(model_names, means, yerr=stds, capsize=5, color=model_colors, width=0.4)
+    ax.set_ylabel("CV Accuracy")
+    ax.set_ylim(0, 1.1)
+    for bar, mean in zip(bars, means):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.02,
+            f"{mean:.1%}",
+            ha="center", fontsize=11, fontweight="bold",
+        )
+    sns.despine()
+    st.pyplot(fig)
+    plt.close(fig)
+
+# ══════════════════════════════════════════════════════════════════════
+# TAB 4 — About the Data
 # ══════════════════════════════════════════════════════════════════════
 with tab_data:
     st.subheader("About the Iris Dataset")

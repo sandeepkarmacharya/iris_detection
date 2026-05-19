@@ -6,6 +6,8 @@ from sklearn import datasets
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.metrics import confusion_matrix, classification_report
 
 # ── Import app logic ─────────────────────────────────────────────
 # We test the ML pipeline directly (the streamlit-.-decorated
@@ -34,6 +36,35 @@ def train_model(name: str):
     clf = models[name]
     clf.fit(X, y)
     return clf
+
+
+def get_model_metrics(name: str):
+    """Compute cross-val scores and confusion matrix (same logic as the app)."""
+    X, y, target_names = load_iris()
+    models = {
+        "Random Forest": RandomForestClassifier(random_state=42),
+        "SVM": SVC(probability=True, random_state=42),
+        "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+    }
+    clf = models[name]
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(clf, X, y, cv=cv, scoring="accuracy")
+
+    clf.fit(X, y)
+    y_pred = clf.predict(X)
+    cm = confusion_matrix(y, y_pred)
+
+    report = classification_report(y, y_pred, target_names=target_names, output_dict=True)
+
+    return {
+        "cv_scores": cv_scores,
+        "cv_mean": cv_scores.mean(),
+        "cv_std": cv_scores.std(),
+        "confusion_matrix": cm,
+        "classification_report": report,
+        "target_names": target_names,
+    }
 
 
 class TestIrisClassifier:
@@ -118,3 +149,48 @@ class TestIrisClassifier:
         """Logistic Regression should use max_iter=200."""
         clf = train_model("Logistic Regression")
         assert clf.max_iter == 200
+
+    # ── Model metrics tests ──
+
+    def test_cv_scores_have_five_folds(self):
+        """Cross-validation should return exactly 5 scores."""
+        for m in self.models:
+            metrics = get_model_metrics(m)
+            assert len(metrics["cv_scores"]) == 5, f"{m} has {len(metrics['cv_scores'])} folds"
+
+    def test_cv_accuracy_above_baseline(self):
+        """All models should have CV accuracy well above random chance (33%)."""
+        for m in self.models:
+            metrics = get_model_metrics(m)
+            assert metrics["cv_mean"] > 0.8, f"{m} CV accuracy {metrics['cv_mean']:.2%} is too low"
+
+    def test_confusion_matrix_shape(self):
+        """Confusion matrix should be 3x3 (3 species)."""
+        for m in self.models:
+            metrics = get_model_metrics(m)
+            assert metrics["confusion_matrix"].shape == (3, 3), f"{m} CM shape {metrics['confusion_matrix'].shape}"
+
+    def test_confusion_matrix_diagonal_dominant(self):
+        """Confusion matrix diagonal should contain most samples (≥140/150)."""
+        for m in self.models:
+            metrics = get_model_metrics(m)
+            cm = metrics["confusion_matrix"]
+            correct = cm.trace()
+            assert correct >= 140, f"{m} only got {correct}/150 correct on training data"
+
+    def test_classification_report_has_all_keys(self):
+        """Classification report should contain all 3 species plus averages."""
+        for m in self.models:
+            metrics = get_model_metrics(m)
+            report = metrics["classification_report"]
+            for cls in ["setosa", "versicolor", "virginica"]:
+                assert cls in report, f"{m} missing {cls} in report"
+            assert "macro avg" in report
+            assert "weighted avg" in report
+
+    def test_macro_avg_f1_reasonable(self):
+        """Macro average F1 should be high (≥0.85) for all models."""
+        for m in self.models:
+            metrics = get_model_metrics(m)
+            macro_f1 = metrics["classification_report"]["macro avg"]["f1-score"]
+            assert macro_f1 >= 0.85, f"{m} macro avg F1 {macro_f1:.3f} is too low"
