@@ -1,0 +1,15 @@
+services:
+  iris-classifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iris-classifier
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/healthz')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

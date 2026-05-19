@@ -1,6 +1,8 @@
 # 🌸 Iris Flower Species Classifier
 
 [![Streamlit App](https://img.shields.io/badge/Streamlit-Live_App-FF4B4B?logo=streamlit&logoColor=white)](https://karma0san-iris-detection.streamlit.app/)
+[![CI](https://github.com/sandeepkarmacharya/iris_detection/actions/workflows/ci.yml/badge.svg)](https://github.com/sandeepkarmacharya/iris_detection/actions/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://hub.docker.com)
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.5+-F7931E?logo=scikit-learn&logoColor=white)](https://scikit-learn.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -13,14 +15,18 @@ An interactive **Iris flower species predictor** built with [Streamlit](https://
 
 ## ✨ Features
 
-- **🎯 Instant Predictions** — Adjust sliders → see predicted species + confidence
-- **🤖 Multiple Models** — Random Forest, SVM, and Logistic Regression
-- **🔄 Model Comparison** — Compare all 3 classifiers side-by-side
-- **📈 Interactive Visualizations** — Scatter plots, PCA projection, feature distribution histograms
-- **📖 Dataset Explorer** — Stats, preview, and class distribution of the Iris dataset
-- **🎯 Model Performance** — CV accuracy, confusion matrices, per-class precision/recall/F1
-- **📥 CSV Export** — Download prediction results for record-keeping
-- **⚡ Cached Training** — Models train once and are reused via `@st.cache_resource`
+| **🎯 Instant Predictions** — Adjust sliders → see predicted species + confidence
+| **🤖 Multiple Models** — Random Forest, SVM, and Logistic Regression
+| **🔄 Model Comparison** — Compare all 3 classifiers side-by-side
+| **📈 Interactive Visualizations** — Scatter plots, PCA projection, feature distribution histograms
+| **🧠 Decision Boundaries** — 2D visualization of how models separate species
+| **🔧 Hyperparameter Tuning** — Interactive sliders to tweak model params and compare accuracy
+| **🔍 Feature Importance** — See which measurements drive predictions
+| **🎯 Model Performance** — CV accuracy, confusion matrices, per-class precision/recall/F1
+| **📥 CSV Export** — Download prediction results for record-keeping
+| **⚡ Cached Training** — Models train once and are reused via `@st.cache_resource`
+| **🐳 Docker Support** — Run anywhere with Docker or docker-compose
+| **✅ CI Pipeline** — Automated testing on every push (Python 3.10–3.12)
 
 ---
 
@@ -66,14 +72,44 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 ---
 
+## 🐳 Docker
+
+### Build and run with Docker
+
+```bash
+# Build the image
+docker build -t iris-classifier .
+
+# Run the container
+docker run -d -p 8501:8501 --name iris-classifier iris-classifier
+```
+
+### Or use docker-compose
+
+```bash
+docker compose up -d
+```
+
+Open [http://localhost:8501](http://localhost:8501) in your browser.
+
+> The container includes automatic health checks and restarts on failure.
+
+---
+
 ## 📁 Project Structure
 
 ```
 iris_detection/
 ├── iris_detection.py       # Main Streamlit application
 ├── requirements.txt        # Python dependencies
+├── Dockerfile              # Container image definition
+├── docker-compose.yml      # Docker Compose configuration
+├── .dockerignore           # Files excluded from Docker builds
 ├── tests/
-│   └── test_app.py         # Basic unit tests
+│   └── test_app.py         # Unit tests (pytest)
+├── .github/
+│   └── workflows/
+│       └── ci.yml          # CI pipeline (GitHub Actions)
 ├── .devcontainer/
 │   └── devcontainer.json   # VS Code / GitHub Codespaces config
 ├── .gitignore              # Ignored files
@@ -112,6 +148,7 @@ Introduced by Ronald Fisher in 1936, it's one of the most famous datasets in mac
 | [Matplotlib](https://matplotlib.org) | Plotting & charts |
 | [Seaborn](https://seaborn.pydata.org) | Statistical visualizations |
 | [pandas](https://pandas.pydata.org) | Data handling |
+| [Docker](https://docker.com) | Containerization |
 
 ---
 
