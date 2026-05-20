@@ -33,6 +33,6 @@ ENV STREAMLIT_SERVER_PORT=8501 \
 EXPOSE 8501
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/healthz')" || exit 1
+    CMD python -c "import urllib.request; assert urllib.request.urlopen('http://localhost:8501/_stcore/health').read().decode().strip() == 'ok'" || exit 1
 
 ENTRYPOINT ["streamlit", "run", "iris_detection.py"]

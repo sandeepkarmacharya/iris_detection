@@ -378,3 +378,63 @@ class TestIrisClassifier:
         assert isinstance(tuned_score, float)
         assert 0 < default_score <= 1
         assert 0 < tuned_score <= 1
+
+    def test_app_exposes_pure_helpers_for_ui_logic(self):
+        """UI-critical logic should be testable without duplicating Streamlit branches."""
+        import iris_detection as app
+
+        assert callable(app.get_tuning_models)
+        assert callable(app.build_model_comparison_rows)
+        assert callable(app.select_shap_explanation)
+
+    def test_tuning_helper_supports_every_model(self):
+        """Every selectable tuning model should produce tuned/default estimators and a parameter summary."""
+        import iris_detection as app
+
+        configs = {
+            "Random Forest": {"n_estimators": 20, "max_depth": 4, "min_samples_split": 2},
+            "SVM": {"kernel": "rbf", "C": 1.0, "gamma": "scale"},
+            "Logistic Regression": {"C": 1.0, "max_iter": 200, "solver": "lbfgs"},
+            "XGBoost": {"n_estimators": 20, "max_depth": 3, "learning_rate": 0.3, "subsample": 1.0},
+        }
+
+        for model_name in ALL_MODELS:
+            tuned, default, param_desc = app.get_tuning_models(model_name, configs[model_name])
+            assert tuned is not None, model_name
+            assert default is not None, model_name
+            assert param_desc, model_name
+
+    def test_model_comparison_rows_keep_numeric_values_for_chart(self):
+        """The comparison chart should use each model's metrics, not the last loop value."""
+        import iris_detection as app
+
+        rows = app.build_model_comparison_rows(ALL_MODELS)
+
+        assert [row["Model"] for row in rows] == ALL_MODELS
+        assert all("cv_mean" in row and "cv_std" in row for row in rows)
+        assert len({round(row["cv_mean"], 6) for row in rows}) > 1
+
+    def test_docker_health_checks_use_streamlit_health_endpoint(self):
+        """Docker and CI should verify Streamlit's plain-text health endpoint."""
+        from pathlib import Path
+
+        dockerfile = Path("Dockerfile").read_text()
+        workflow = Path(".github/workflows/ci.yml").read_text()
+
+        assert "/_stcore/health" in dockerfile
+        assert "/_stcore/health" in workflow
+        assert "/healthz" not in dockerfile
+        assert "/healthz" not in workflow
+
+    def test_shap_selection_returns_single_feature_vector_for_multiclass_arrays(self):
+        """SHAP waterfall plots need a 1D feature vector for the predicted class."""
+        import iris_detection as app
+
+        shap_values = np.arange(12).reshape(1, 4, 3)
+        expected_values = np.array([0.1, 0.2, 0.3])
+
+        values, base_value = app.select_shap_explanation(shap_values, expected_values, pred_class=2)
+
+        np.testing.assert_array_equal(values, shap_values[0, :, 2])
+        assert base_value == expected_values[2]
+        assert values.shape == (4,)

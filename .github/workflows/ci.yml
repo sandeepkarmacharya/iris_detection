@@ -53,6 +53,6 @@ jobs:
         run: |
           docker run -d --name iris-test -p 8501:8501 iris-classifier:latest
           sleep 5
-          curl -sf http://localhost:8501/healthz | grep -q '"ok"' && echo "Health check passed"
+          curl -sf http://localhost:8501/_stcore/health | grep -q '^ok$' && echo "Health check passed"
           docker stop iris-test
           docker rm iris-test
